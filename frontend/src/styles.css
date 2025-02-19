@@ -1,0 +1,34 @@
+.file-upload-container {
+  padding: 20px;
+  text-align: center;
+  max-width: 500px;
+  margin: auto;
+}
+
+.progress-container {
+  margin-top: 20px;
+  border: 1px solid #ccc;
+}
+
+.progress-bar {
+  height: 20px;
+  background-color: #76c7c0;
+  text-align: center;
+  line-height: 20px;
+  color: white;
+}
+
+.error-message {
+  color: red;
+}
+
+.download-link {
+  display: block;
+  margin-top: 20px;
+  color: #1e90ff;
+  text-decoration: none;
+}
+
+.download-link:hover {
+  text-decoration: underline;
+}
