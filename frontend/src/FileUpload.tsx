@@ -8,23 +8,26 @@ const FileUpload: React.FC = () => {
   const [progress, setProgress] = useState<number>(0);
   const [currentStep, setCurrentStep] = useState<string>("idle");
   const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [zipFileName, setZipFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Handles file input change and validates the selected file
+   */
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile && selectedFile.type === "text/csv") {
       setFile(selectedFile);
       setError(null);
-      setDownloadUrl(null);
       setZipFileName(null);
     } else {
       setError("Veuillez sélectionner un fichier CSV valide.");
     }
   };
 
+  /**
+   * Uploads a chunk of the file to the server
+   */
   const uploadChunk = async (
     chunk: Blob,
     chunkNumber: number,
@@ -44,17 +47,20 @@ const FileUpload: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error("Échec du téléchargement du chunk");
+        throw new Error("Echec lors du téléchargement");
       }
     } catch (err) {
-      setError("Erreur lors du téléchargement");
+      setError("Echec lors du téléchargement");
       console.error(err);
     }
   };
 
+  /**
+   * Handles the upload process by splitting the file into chunks and uploading them
+   */
   const handleUpload = async () => {
     if (!file) {
-      setError("Veuillez sélectionner un fichier.");
+      setError("Veuillez choisir un fichier");
       return;
     }
 
@@ -76,7 +82,7 @@ const FileUpload: React.FC = () => {
     }
 
     try {
-      setCurrentStep("merging");
+      setCurrentStep("processing");
       const response = await fetch(
         "http://localhost:5000/api/files/merge-chunks",
         {
@@ -87,9 +93,9 @@ const FileUpload: React.FC = () => {
       );
 
       if (!response.ok) {
-        throw new Error("Échec du téléchargement du fichier");
+        throw new Error("Erreur lors du traitement du fichier");
       }
-      console.log(response);
+
       const data = await response.json();
       setZipFileName(data.zipFileName);
       setCurrentStep("completed");
@@ -98,21 +104,23 @@ const FileUpload: React.FC = () => {
       console.error(err);
     } finally {
       setIsUploading(false);
-      setIsProcessing(false);
     }
   };
 
+  /**
+   * Handles the download of the ZIP file
+   */
   const handleDownload = async () => {
     try {
       if (!zipFileName) {
-        throw new Error("Nom de fichier ZIP non défini");
+        throw new Error("ZIP file name not defined");
       }
 
       const response = await fetch(
         `http://localhost:5000/api/files/download/${zipFileName}`
       );
       if (!response.ok) {
-        throw new Error("Échec du téléchargement du fichier");
+        throw new Error("Failed to download file");
       }
 
       const blob = await response.blob();
@@ -130,22 +138,70 @@ const FileUpload: React.FC = () => {
     }
   };
 
+  /**
+   * Returns the buton text based on the current step
+   */
+  const getButtonText = () => {
+    switch (currentStep) {
+      case "uploading":
+        return "Téléchargement";
+      case "processing":
+        return "Traitement en cours";
+      case "completed":
+        return "Processus complété";
+      default:
+        return "Démarrer téléchargement";
+    }
+  };
+
+  /**
+   * Resets the upload state for a new upload
+   */
+  const resetUpload = () => {
+    setFile(null);
+    setProgress(0);
+    setCurrentStep("idle");
+    setIsUploading(false);
+    setZipFileName(null);
+    setError(null);
+    const fileInput = document.querySelector(".file-input") as HTMLInputElement;
+    if (fileInput) {
+      fileInput.value = "";
+    }
+  };
+
   return (
     <div className="upload-container">
-      <h2>Importer un fichier CSV</h2>
+      <h2>Sélectionner un fichier CSV à traiter</h2>
       <input
         type="file"
         accept=".csv"
         onChange={handleFileChange}
         className="file-input"
       />
-      <button
-        onClick={handleUpload}
-        disabled={!file || isUploading || isProcessing}
-        className="upload-button"
-      >
-        {isUploading ? "Envoi en cours..." : "Importer le fichier"}{" "}
-      </button>
+      <div className="button-container">
+        {currentStep !== "completed" && (
+          <button
+            onClick={handleUpload}
+            disabled={!file || isUploading}
+            className="upload-button"
+          >
+            {getButtonText()}
+            {isUploading && (
+              <div className="loading-dots">
+                <div></div>
+                <div></div>
+                <div></div>
+              </div>
+            )}
+          </button>
+        )}
+        {currentStep === "completed" && (
+          <button onClick={resetUpload} className="upload-button">
+            Nouveau téléchargement
+          </button>
+        )}
+      </div>
 
       {progress > 0 && currentStep === "uploading" && (
         <div className="progress-container">
@@ -154,16 +210,14 @@ const FileUpload: React.FC = () => {
         </div>
       )}
 
-      {currentStep === "merging" && <p>Fusion en cours...</p>}
-      {currentStep === "processing" && (
-        <p>Analyse et séparation des données...</p>
-      )}
-
       {error && <p className="error-message">{error}</p>}
 
       {zipFileName && (
-        <button onClick={handleDownload} className="download-button">
-          📥 Télécharger le Fichier Traité
+        <button
+          onClick={handleDownload}
+          className="download-button completed-button"
+        >
+          📥 Téléchargé le fichier traité
         </button>
       )}
     </div>
