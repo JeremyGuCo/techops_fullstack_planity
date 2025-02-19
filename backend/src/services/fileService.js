@@ -3,22 +3,45 @@ import fsp from 'fs/promises';
 import path from 'path';
 import csvParser from 'csv-parser';
 import config from '../config.js';
-import archiver from 'archiver'; 
+import archiver from 'archiver';
 
+/**
+ * Ensures that a directory exists, creating it if necessary
+ * 
+ * @param {string} dirPath - Path to the directory
+ * @returns {Promise<void>}
+ */
 const ensureDir = async (dirPath) => {
   if (!fs.existsSync(dirPath)) {
     await fsp.mkdir(dirPath, { recursive: true });
   }
 };
 
+/**
+ * Saves a file chunk for merge
+ *
+ * @param {Buffer} chunk - The file chunk to save
+ * @param {number} chunkNumber - The index of the chunk
+ * @param {number} totalChunks - Total number of chunks
+ * @param {string} fileName - The original file name
+ * @returns {Promise<void>}
+ */
 export const saveChunk = async (chunk, chunkNumber, totalChunks, fileName) => {
   const chunkDir = path.join(config.uploadDir, 'chunks');
   await ensureDir(chunkDir);
   const chunkFilePath = path.join(chunkDir, `${fileName}.part_${chunkNumber}`);
+
   await fsp.writeFile(chunkFilePath, chunk);
   console.log(`Chunk ${chunkNumber} saved: ${chunkFilePath}`);
 };
 
+/**
+ * Merges all uploaded chunks into a single file
+ *
+ * @param {string} fileName - The original file name
+ * @param {number} totalChunks - Total number of chunks to merge
+ * @returns {Promise<string>} - Path to the file
+ */
 export const mergeChunks = async (fileName, totalChunks) => {
   const chunkDir = path.join(config.uploadDir, 'chunks');
   const mergedFilePath = path.join(config.uploadDir, 'merged_files', fileName);
@@ -56,6 +79,13 @@ export const mergeChunks = async (fileName, totalChunks) => {
     throw error;
   }
 };
+
+/**
+ * Splits a large CSV file into two separate files based on the gender column
+ *
+ * @param {string} filePath - Path to the CSV file
+ * @returns {Promise<{ malesPath: string, femalesPath: string }>} - Paths to the generated CSV files
+ */
 export const splitCSV = async (filePath) => {
   const malesPath = path.join(config.outputDir, 'males.csv');
   const femalesPath = path.join(config.outputDir, 'females.csv');
@@ -114,6 +144,12 @@ export const splitCSV = async (filePath) => {
       });
   });
 };
+
+/**
+ * Create a ZIP archive containing the processed CSV files
+ *
+ * @returns {Promise<string>} - Path to the ZIP file
+ */
 export const createZip = async () => {
   const zipPath = path.join(config.outputDir, 'result.zip');
   await ensureDir(config.outputDir);

@@ -20,7 +20,8 @@
   max-width: 400px;
 }
 
-.upload-button, .download-button {
+.upload-button,
+.download-button {
   margin-top: 20px;
   padding: 10px 20px;
   border: none;
@@ -31,7 +32,8 @@
   font-size: 16px;
 }
 
-.upload-button:disabled, .download-button:disabled {
+.upload-button:disabled,
+.download-button:disabled {
   background-color: #ccc;
   cursor: not-allowed;
 }
@@ -63,4 +65,57 @@
 .error-message {
   color: red;
   margin-top: 10px;
+}
+
+.loading-dots {
+  display: inline-block;
+  font-size: 1.2rem;
+  color: #666;
+  margin: auto 2px auto 10px;
+}
+
+.loading-dots div {
+  width: 8px;
+  height: 8px;
+  background-color: #666;
+  border-radius: 50%;
+  margin-right: 5px;
+  display: inline-block;
+  animation: loading-animation 1s infinite ease-in-out;
+}
+
+.loading-dots div:nth-child(2) {
+  animation-delay: 0.3s;
+}
+
+.loading-dots div:nth-child(3) {
+  animation-delay: 0.6s;
+}
+
+@keyframes loading-animation {
+
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+
+  30% {
+    transform: translateY(-10px);
+  }
+}
+
+.completed-button {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  margin-top: 20px;
+}
+
+.completed-button:hover {
+  background-color: #218838;
 }
