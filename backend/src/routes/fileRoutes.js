@@ -1,19 +1,13 @@
-import express from "express";
-import multer from "multer";
-import { processFile } from "../controllers/fileController.js";
-import config from "../config/config.js";
+import express from 'express';
+import multer from 'multer';
+import { uploadChunk, processFile, downloadZip } from '../controllers/fileController.js';
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
+router.post('/upload', upload.single('file'), uploadChunk);
+router.post('/merge-chunks', processFile);
 
-const storage = multer.diskStorage({
-  destination: config.uploadDir,
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${file.originalname}`);
-  },
-});
-const upload = multer({ storage });
-
-router.post("/upload", upload.single("file"), processFile);
+router.get("/download/:zipFileName", downloadZip);
 
 export default router;

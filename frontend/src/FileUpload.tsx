@@ -1,28 +1,27 @@
 import React, { useState } from "react";
 import "./styles.css";
 
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+const CHUNK_SIZE = 5 * 1024 * 1024;
 
 const FileUpload: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<number>(0);
-  const [uploadedMB, setUploadedMB] = useState<number>(0);
-  const [totalMB, setTotalMB] = useState<number>(0);
-  const [error, setError] = useState<string | null>(null);
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState<string>("idle");
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [zipFileName, setZipFileName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile && selectedFile.type === "text/csv") {
       setFile(selectedFile);
-      setProgress(0);
-      setUploadedMB(0);
-      setTotalMB(parseFloat((selectedFile.size / (1024 * 1024)).toFixed(2)));
       setError(null);
       setDownloadUrl(null);
+      setZipFileName(null);
     } else {
-      setError("Please select a valid CSV file.");
+      setError("Veuillez sélectionner un fichier CSV valide.");
     }
   };
 
@@ -45,23 +44,23 @@ const FileUpload: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to upload chunk");
+        throw new Error("Échec du téléchargement du chunk");
       }
     } catch (err) {
-      setError("Error uploading chunk");
+      setError("Erreur lors du téléchargement");
       console.error(err);
     }
   };
 
   const handleUpload = async () => {
     if (!file) {
-      setError("Please select a file.");
+      setError("Veuillez sélectionner un fichier.");
       return;
     }
 
     setError(null);
     setProgress(0);
-    setUploadedMB(0);
+    setCurrentStep("uploading");
     setIsUploading(true);
 
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
@@ -74,10 +73,10 @@ const FileUpload: React.FC = () => {
 
       await uploadChunk(chunk, i, totalChunks, fileName);
       setProgress(Math.round(((i + 1) / totalChunks) * 100));
-      setUploadedMB(parseFloat((end / (1024 * 1024)).toFixed(2)));
     }
 
     try {
+      setCurrentStep("merging");
       const response = await fetch(
         "http://localhost:5000/api/files/merge-chunks",
         {
@@ -88,67 +87,84 @@ const FileUpload: React.FC = () => {
       );
 
       if (!response.ok) {
-        throw new Error("Failed to merge chunks");
+        throw new Error("Échec du téléchargement du fichier");
       }
-
-      setProgress(100);
-      setDownloadUrl(`http://localhost:5000/api/files/download`);
+      console.log(response);
+      const data = await response.json();
+      setZipFileName(data.zipFileName);
+      setCurrentStep("completed");
     } catch (err) {
-      setError("Error merging chunks");
+      setError("Erreur lors du traitement du fichier");
       console.error(err);
     } finally {
       setIsUploading(false);
+      setIsProcessing(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    try {
+      if (!zipFileName) {
+        throw new Error("Nom de fichier ZIP non défini");
+      }
+
+      const response = await fetch(
+        `http://localhost:5000/api/files/download/${zipFileName}`
+      );
+      if (!response.ok) {
+        throw new Error("Échec du téléchargement du fichier");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = url;
+      a.download = zipFileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError("Erreur lors du téléchargement du fichier");
+      console.error(err);
     }
   };
 
   return (
-    <div
-      style={{
-        padding: "20px",
-        textAlign: "center",
-        maxWidth: "500px",
-        margin: "auto",
-      }}
-    >
-      <h2>Upload Large CSV File</h2>
+    <div className="upload-container">
+      <h2>Importer un fichier CSV</h2>
       <input
         type="file"
         accept=".csv"
         onChange={handleFileChange}
-        aria-label="Select CSV file"
+        className="file-input"
       />
       <button
         onClick={handleUpload}
-        disabled={!file || isUploading}
-        style={{ marginTop: "10px" }}
-        aria-busy={isUploading}
+        disabled={!file || isUploading || isProcessing}
+        className="upload-button"
       >
-        {isUploading ? "Uploading..." : "Upload"}
+        {isUploading ? "Envoi en cours..." : "Importer le fichier"}{" "}
       </button>
 
-      {progress > 0 && (
-        <div
-          className="progress-container"
-          aria-label={`Progress: ${progress}%`}
-        >
-          <div className="progress-bar" style={{ width: `${progress}%` }}>
-            <span>
-              {uploadedMB}MB / {totalMB}MB
-            </span>
-          </div>
+      {progress > 0 && currentStep === "uploading" && (
+        <div className="progress-container">
+          <div className="progress-bar" style={{ width: `${progress}%` }}></div>
+          <span className="progress-text">{progress}%</span>
         </div>
       )}
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {currentStep === "merging" && <p>Fusion en cours...</p>}
+      {currentStep === "processing" && (
+        <p>Analyse et séparation des données...</p>
+      )}
 
-      {downloadUrl && (
-        <a
-          href={downloadUrl}
-          download="processed_data.zip"
-          style={{ display: "block", marginTop: "10px" }}
-        >
-          📥 Download Processed File
-        </a>
+      {error && <p className="error-message">{error}</p>}
+
+      {zipFileName && (
+        <button onClick={handleDownload} className="download-button">
+          📥 Télécharger le Fichier Traité
+        </button>
       )}
     </div>
   );

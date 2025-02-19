@@ -1,31 +1,48 @@
-import { processCSV } from "../services/fileService.js";
-import fs from 'fs/promises';
+import { saveChunk, mergeChunks, splitCSV, createZip } from '../services/fileService.js';
+import path from 'path';
+import config from '../config.js';
+import fs from 'fs';
+
+export const uploadChunk = async (req, res) => {
+  try {
+    const chunk = req.file.buffer;
+    const chunkNumber = Number(req.body.chunkNumber);
+    const totalChunks = Number(req.body.totalChunks);
+    const fileName = req.body.originalname;
+    await saveChunk(chunk, chunkNumber, totalChunks, fileName);
+    res.status(200).json({ message: "Chunk uploaded successfully" });
+  } catch (error) {
+    res.status(500).json({ error: "Error uploading chunk" });
+  }
+};
 
 export const processFile = async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    const { fileName, totalChunks } = req.body;
+    const mergedFile = await mergeChunks(fileName, totalChunks);
+    await splitCSV(mergedFile);
 
-    const { path: filePath, originalname: originalFileName, mimetype } = req.file;
+    const zipPath = await createZip(fileName);
 
-    if (!mimetype.startsWith('text/csv')) {
-      await fs.unlink(filePath);
-      return res.status(400).json({ error: "Invalid file type. Please upload a CSV file." });
-    }
+    const zipFileName = path.basename(zipPath);
 
-    const zipPath = await processCSV(filePath);
-    const zipFileName = `result_${originalFileName?.split('.').shift() || 'data'}.zip`;
-
-    res.download(zipPath, zipFileName, (err) => {
-      if (err) {
-        console.error("Error during download", err);
-        res.status(500).json({ error: "Error downloading file" });
-      }
-    });
+    res.status(200).json({ zipFileName });
   } catch (error) {
-    console.error("Error processing file:", error);
     res.status(500).json({ error: error.message });
-    if (req.file?.path) {
-      fs.unlink(req.file.path).catch(err => console.error("Error deleting uploaded file:", err));
-    }
   }
+};
+
+export const downloadZip = async (req, res) => {
+  try {
+    const { zipFileName } = req.params;
+    const zipPath = path.join(config.outputDir, zipFileName);
+
+    if (!fs.existsSync(zipPath)) {
+      return res.status(404).json({ error: "ZIP file not found." });
+    }
+
+    res.download(zipPath);
+  } catch (error) {
+    res.status(500).json({ error: "Error downloading ZIP." });
+  };
 };
