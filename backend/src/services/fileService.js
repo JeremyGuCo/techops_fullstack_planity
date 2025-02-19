@@ -1,53 +1,139 @@
-import fs from "fs";
-import path from "path";
-import csv from "csv-parser";
-import archiver from "archiver";
-import config from "../config/config.js";
-import { promisify } from "util";
+import fs from 'fs';
+import fsp from 'fs/promises';
+import path from 'path';
+import csvParser from 'csv-parser';
+import config from '../config.js';
+import archiver from 'archiver'; 
 
-const unlinkAsync = promisify(fs.unlink);
+const ensureDir = async (dirPath) => {
+  if (!fs.existsSync(dirPath)) {
+    await fsp.mkdir(dirPath, { recursive: true });
+  }
+};
 
-export const processCSV = (filePath) => {
+export const saveChunk = async (chunk, chunkNumber, totalChunks, fileName) => {
+  const chunkDir = path.join(config.uploadDir, 'chunks');
+  await ensureDir(chunkDir);
+  const chunkFilePath = path.join(chunkDir, `${fileName}.part_${chunkNumber}`);
+  await fsp.writeFile(chunkFilePath, chunk);
+  console.log(`Chunk ${chunkNumber} saved: ${chunkFilePath}`);
+};
+
+export const mergeChunks = async (fileName, totalChunks) => {
+  const chunkDir = path.join(config.uploadDir, 'chunks');
+  const mergedFilePath = path.join(config.uploadDir, 'merged_files', fileName);
+
+  await ensureDir(path.dirname(mergedFilePath));
+
+  const writeStream = fs.createWriteStream(mergedFilePath);
+
+  try {
+    for (let i = 0; i < totalChunks; i++) {
+      const chunkFilePath = path.join(chunkDir, `${fileName}.part_${i}`);
+
+      if (!fs.existsSync(chunkFilePath)) {
+        throw new Error(`Chunk ${i} missing, merge aborted.`);
+      }
+
+      const chunkBuffer = await fsp.readFile(chunkFilePath);
+      writeStream.write(chunkBuffer);
+
+      await fsp.unlink(chunkFilePath);
+      console.log(`Chunk deleted: ${chunkFilePath}`);
+    }
+
+    writeStream.end();
+    await new Promise((resolve, reject) => {
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
+
+    console.log(`Chunks merged successfully: ${mergedFilePath}`);
+    return mergedFilePath;
+  } catch (error) {
+    console.error(`Error merging chunks:`, error.message);
+    writeStream.destroy();
+    throw error;
+  }
+};
+export const splitCSV = async (filePath) => {
+  const malesPath = path.join(config.outputDir, 'males.csv');
+  const femalesPath = path.join(config.outputDir, 'females.csv');
+
+  await ensureDir(config.outputDir);
+
+  const malesStream = fs.createWriteStream(malesPath, { highWaterMark: 1024 * 1024 });
+  const femalesStream = fs.createWriteStream(femalesPath, { highWaterMark: 1024 * 1024 });
+
+  let maleBuffer = [];
+  let femaleBuffer = [];
+  const batchSize = 5000;
+
   return new Promise((resolve, reject) => {
-    const males = [];
-    const females = [];
+    const readStream = fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 });
 
-    fs.createReadStream(filePath)
-      .pipe(csv())
-      .on("data", (row) => {
-        if (row.gender === "Male") males.push(row);
-        else if (row.gender === "Female") females.push(row);
+    readStream
+      .pipe(csvParser())
+      .on('headers', (headers) => {
+        const headerLine = headers.join(',') + '\n';
+        malesStream.write(headerLine);
+        femalesStream.write(headerLine);
       })
-      .on("end", async () => {
-        try {
-          const outputDir = config.outputDir;
-          if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
+      .on('data', (row) => {
+        const line = Object.values(row).join(',') + '\n';
+        const gender = row.gender?.toLowerCase();
 
-          const maleFile = path.join(outputDir, "males.csv");
-          const femaleFile = path.join(outputDir, "females.csv");
+        if (gender === 'male') {
+          maleBuffer.push(line);
+        } else {
+          femaleBuffer.push(line);
+        }
 
-          fs.writeFileSync(maleFile, males.map(obj => Object.values(obj).join(",")).join("\n"));
-          fs.writeFileSync(femaleFile, females.map(obj => Object.values(obj).join(",")).join("\n"));
-
-          const zipPath = path.join(outputDir, "result.zip");
-          const output = fs.createWriteStream(zipPath);
-          const archive = archiver("zip");
-
-          output.on("close", async () => {
-            await unlinkAsync(filePath);
-            await unlinkAsync(maleFile);
-            await unlinkAsync(femaleFile);
-            resolve(zipPath);
-          });
-
-          archive.pipe(output);
-          archive.file(maleFile, { name: "males.csv" });
-          archive.file(femaleFile, { name: "females.csv" });
-          archive.finalize();
-        } catch (err) {
-          reject(err);
+        if (maleBuffer.length >= batchSize) {
+          malesStream.write(maleBuffer.join(''));
+          maleBuffer = [];
+        }
+        if (femaleBuffer.length >= batchSize) {
+          femalesStream.write(femaleBuffer.join(''));
+          femaleBuffer = [];
         }
       })
-      .on("error", (err) => reject(err));
+      .on('end', () => {
+        if (maleBuffer.length > 0) malesStream.write(maleBuffer.join(''));
+        if (femaleBuffer.length > 0) femalesStream.write(femaleBuffer.join(''));
+
+        malesStream.end();
+        femalesStream.end();
+
+        console.log(`Split completed: males.csv & females.csv`);
+        resolve({ malesPath, femalesPath });
+      })
+      .on('error', (err) => {
+        console.error(`Error splitting CSV:`, err.message);
+        reject(err);
+      });
+  });
+};
+export const createZip = async () => {
+  const zipPath = path.join(config.outputDir, 'result.zip');
+  await ensureDir(config.outputDir);
+
+  return new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    archive.pipe(output);
+    archive.file(path.join(config.outputDir, 'males.csv'), { name: 'males.csv' });
+    archive.file(path.join(config.outputDir, 'females.csv'), { name: 'females.csv' });
+
+    archive.on('error', (err) => {
+      reject(new Error(`ZIP error: ${err.message}`));
+    });
+
+    output.on('close', () => {
+      resolve(zipPath);
+    });
+
+    archive.finalize();
   });
 };

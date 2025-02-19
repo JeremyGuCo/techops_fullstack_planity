@@ -4,7 +4,7 @@ import FileUpload from "./FileUpload";
 const App: React.FC = () => {
   return (
     <div>
-      <h1 style={{ textAlign: "center" }}>CSV Uploader</h1>
+      <h1 style={{ textAlign: "center" }}>DataSlicer</h1>
       <FileUpload />
     </div>
   );
