@@ -12,7 +12,7 @@ import fs from 'fs';
  * @param {number} req.body.chunkNumber - Index of the chunk
  * @param {number} req.body.totalChunks - Total number of chunks
  * @param {string} req.body.originalname - Original file name
- * @param {Object} res - Epxress response object
+ * @param {Object} res - Express response object
  * @returns {Object} JSON response with status
  */
 export const uploadChunk = async (req, res) => {
@@ -21,6 +21,10 @@ export const uploadChunk = async (req, res) => {
     const chunkNumber = Number(req.body.chunkNumber);
     const totalChunks = Number(req.body.totalChunks);
     const fileName = req.body.originalname;
+
+    if (isNaN(chunkNumber) || isNaN(totalChunks) || !fileName) {
+      return res.status(400).json({ error: "Invalid chunk metadata" });
+    }
 
     await saveChunk(chunk, chunkNumber, totalChunks, fileName);
 
@@ -43,9 +47,14 @@ export const uploadChunk = async (req, res) => {
 export const processFile = async (req, res) => {
   try {
     const { fileName, totalChunks } = req.body;
+
+    if (!fileName || isNaN(totalChunks)) {
+      return res.status(400).json({ error: "Invalid file metadata" });
+    }
+
     const mergedFile = await mergeChunks(fileName, totalChunks);
     await splitCSV(mergedFile);
-    const zipPath = await createZip(fileName);
+    const zipPath = await createZip();
     const zipFileName = path.basename(zipPath);
 
     res.status(200).json({ zipFileName });
