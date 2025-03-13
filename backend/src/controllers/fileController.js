@@ -20,7 +20,7 @@ export const uploadChunk = async (req, res) => {
     const chunk = req.file.buffer;
     const chunkNumber = Number(req.body.chunkNumber);
     const totalChunks = Number(req.body.totalChunks);
-    const fileName = req.body.originalname;
+    const fileName = `${req.body.originalname}`;
 
     if (isNaN(chunkNumber) || isNaN(totalChunks) || !fileName) {
       return res.status(400).json({ error: "Invalid chunk metadata" });

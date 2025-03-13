@@ -5,6 +5,7 @@ import csvParser from 'csv-parser';
 import config from '../config.js';
 import archiver from 'archiver';
 
+
 /**
  * Ensures that a directory exists, creating it if necessary
  * 
@@ -17,6 +18,7 @@ const ensureDir = async (dirPath) => {
   }
 };
 
+
 /**
  * Saves a file chunk for merge
  *
@@ -28,6 +30,7 @@ const ensureDir = async (dirPath) => {
  */
 export const saveChunk = async (chunk, chunkNumber, totalChunks, fileName) => {
   const chunkDir = path.join(config.uploadDir, 'chunks');
+
   await ensureDir(chunkDir);
   const chunkFilePath = path.join(chunkDir, `${fileName}.part_${chunkNumber}`);
 
