@@ -1,7 +1,12 @@
-import { saveChunk, mergeChunks, splitCSV, createZip } from '../services/fileService.js';
-import path from 'path';
-import config from '../config.js';
-import fs from 'fs';
+import {
+  saveChunk,
+  mergeChunks,
+  splitCSV,
+  createZip,
+} from "../services/fileService.js";
+import path from "path";
+import config from "../config.js";
+import fs from "fs";
 
 /**
  * Handles chunk upload for large file processing
@@ -52,8 +57,22 @@ export const processFile = async (req, res) => {
       return res.status(400).json({ error: "Invalid file metadata" });
     }
 
-    const mergedFile = await mergeChunks(fileName, totalChunks);
-    await splitCSV(mergedFile);
+    let mergedFilePath = null;
+    const merger = mergeChunks(fileName, parseInt(totalChunks));
+
+    for await (const result of merger) {
+      if (result.type === "progress") {
+        console.log(result.data);
+      } else if (result.type === "complete") {
+        mergedFilePath = result.data;
+      }
+    }
+
+    if (!mergedFilePath) {
+      throw new Error("Failed to merge file chunks");
+    }
+
+    await splitCSV(mergedFilePath);
     const zipPath = await createZip();
     const zipFileName = path.basename(zipPath);
 

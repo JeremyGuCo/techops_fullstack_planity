@@ -5,10 +5,9 @@ import csvParser from 'csv-parser';
 import config from '../config.js';
 import archiver from 'archiver';
 
-
 /**
  * Ensures that a directory exists, creating it if necessary
- * 
+ *
  * @param {string} dirPath - Path to the directory
  * @returns {Promise<void>}
  */
@@ -17,7 +16,6 @@ const ensureDir = async (dirPath) => {
     await fsp.mkdir(dirPath, { recursive: true });
   }
 };
-
 
 /**
  * Saves a file chunk for merge
@@ -39,16 +37,15 @@ export const saveChunk = async (chunk, chunkNumber, totalChunks, fileName) => {
 };
 
 /**
- * Merges all uploaded chunks into a single file
+ * Merges all uploaded chunks into a single file using a generator function
  *
  * @param {string} fileName - The original file name
  * @param {number} totalChunks - Total number of chunks to merge
- * @returns {Promise<string>} - Path to the file
+ * @returns {AsyncGenerator<{type: string, data: string}>} - Updates and file path
  */
-export const mergeChunks = async (fileName, totalChunks) => {
+export async function* mergeChunks(fileName, totalChunks) {
   const chunkDir = path.join(config.uploadDir, 'chunks');
   const mergedFilePath = path.join(config.uploadDir, 'merged_files', fileName);
-
   await ensureDir(path.dirname(mergedFilePath));
 
   const writeStream = fs.createWriteStream(mergedFilePath);
@@ -66,6 +63,11 @@ export const mergeChunks = async (fileName, totalChunks) => {
 
       await fsp.unlink(chunkFilePath);
       console.log(`Chunk deleted: ${chunkFilePath}`);
+
+      yield {
+        type: 'progress',
+        data: `Processed chunk ${i + 1}/${totalChunks}`,
+      };
     }
 
     writeStream.end();
@@ -75,13 +77,13 @@ export const mergeChunks = async (fileName, totalChunks) => {
     });
 
     console.log(`Chunks merged successfully: ${mergedFilePath}`);
-    return mergedFilePath;
+    yield { type: 'complete', data: mergedFilePath };
   } catch (error) {
     console.error(`Error merging chunks:`, error.message);
     writeStream.destroy();
     throw error;
   }
-};
+}
 
 /**
  * Splits a large CSV file into two separate files based on the gender column
@@ -95,15 +97,20 @@ export const splitCSV = async (filePath) => {
 
   await ensureDir(config.outputDir);
 
-  const malesStream = fs.createWriteStream(malesPath, { highWaterMark: 1024 * 1024 });
-  const femalesStream = fs.createWriteStream(femalesPath, { highWaterMark: 1024 * 1024 });
+  const malesStream = fs.createWriteStream(malesPath, {
+    highWaterMark: 1024 * 1024,
+  });
+  const femalesStream = fs.createWriteStream(femalesPath, {
+    highWaterMark: 1024 * 1024,
+  });
 
   let maleBuffer = [];
   let femaleBuffer = [];
   const batchSize = 5000;
-
   return new Promise((resolve, reject) => {
-    const readStream = fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+    const readStream = fs.createReadStream(filePath, {
+      highWaterMark: 1024 * 1024,
+    });
 
     readStream
       .pipe(csvParser())
@@ -162,8 +169,12 @@ export const createZip = async () => {
     const archive = archiver('zip', { zlib: { level: 9 } });
 
     archive.pipe(output);
-    archive.file(path.join(config.outputDir, 'males.csv'), { name: 'males.csv' });
-    archive.file(path.join(config.outputDir, 'females.csv'), { name: 'females.csv' });
+    archive.file(path.join(config.outputDir, 'males.csv'), {
+      name: 'males.csv',
+    });
+    archive.file(path.join(config.outputDir, 'females.csv'), {
+      name: 'females.csv',
+    });
 
     archive.on('error', (err) => {
       reject(new Error(`ZIP error: ${err.message}`));
