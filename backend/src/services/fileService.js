@@ -28,7 +28,6 @@ const ensureDir = async (dirPath) => {
  */
 export const saveChunk = async (chunk, chunkNumber, totalChunks, fileName) => {
   const chunkDir = path.join(config.uploadDir, 'chunks');
-
   await ensureDir(chunkDir);
   const chunkFilePath = path.join(chunkDir, `${fileName}.part_${chunkNumber}`);
 

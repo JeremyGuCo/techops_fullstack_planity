@@ -12,10 +12,15 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+<<<<<<< HEAD
     "css-loader": "^7.1.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "style-loader": "^4.0.0"
+=======
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+>>>>>>> 2a742ac9d42b5e69f19face82fddc2cfb4c72a73
   },
   "devDependencies": {
     "@babel/core": "^7.26.9",
