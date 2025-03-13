@@ -10,35 +10,38 @@ const FileUpload: React.FC = () => {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [zipFileName, setZipFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fileId, setFileId] = useState<string | null>(null);
 
-  /**
-   * Handles file input change and validates the selected file
-   */
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile && selectedFile.type === "text/csv") {
       setFile(selectedFile);
       setError(null);
       setZipFileName(null);
+      setFileId(null);
+      setProgress(0);
+      setCurrentStep("ready");
     } else {
       setError("Veuillez sélectionner un fichier CSV valide.");
     }
   };
 
-  /**
-   * Uploads a chunk of the file to the server
-   */
   const uploadChunk = async (
     chunk: Blob,
     chunkNumber: number,
     totalChunks: number,
-    fileName: string
-  ) => {
+    fileName: string,
+    currentFileId: string | null
+  ): Promise<string | null> => {
     const formData = new FormData();
-    formData.append("file", chunk, fileName);
+    formData.append("file", chunk);
     formData.append("chunkNumber", chunkNumber.toString());
     formData.append("totalChunks", totalChunks.toString());
     formData.append("originalname", fileName);
+
+    if (currentFileId) {
+      formData.append("fileId", currentFileId);
+    }
 
     try {
       const response = await fetch("http://localhost:5000/api/files/upload", {
@@ -47,179 +50,105 @@ const FileUpload: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error("Echec lors du téléchargement");
-      }
-    } catch (err) {
-      setError("Echec lors du téléchargement");
-      console.error(err);
-    }
-  };
-
-  /**
-   * Handles the upload process by splitting the file into chunks and uploading them
-   */
-  const handleUpload = async () => {
-    if (!file) {
-      setError("Veuillez choisir un fichier");
-      return;
-    }
-
-    setError(null);
-    setProgress(0);
-    setCurrentStep("uploading");
-    setIsUploading(true);
-
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-    const fileName = file.name;
-
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE;
-      const end = Math.min(start + CHUNK_SIZE, file.size);
-      const chunk = file.slice(start, end);
-
-      await uploadChunk(chunk, i, totalChunks, fileName);
-      setProgress(Math.round(((i + 1) / totalChunks) * 100));
-    }
-
-    try {
-      setCurrentStep("processing");
-      const response = await fetch(
-        "http://localhost:5000/api/files/merge-chunks",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fileName, totalChunks }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error("Erreur lors du traitement du fichier");
+        throw new Error(`Erreur serveur chunk ${chunkNumber}`);
       }
 
       const data = await response.json();
-      setZipFileName(data.zipFileName);
-      setCurrentStep("completed");
-    } catch (err) {
-      setError("Erreur lors du traitement du fichier");
-      console.error(err);
-    } finally {
-      setIsUploading(false);
-    }
-  };
 
-  /**
-   * Handles the download of the ZIP file
-   */
-  const handleDownload = async () => {
-    try {
-      if (!zipFileName) {
-        throw new Error("ZIP file name not defined");
+      if (!currentFileId && data.fileId) {
+        console.log("FileId reçu:", data.fileId);
+        return data.fileId;
       }
 
-      const response = await fetch(
-        `http://localhost:5000/api/files/download/${zipFileName}`
-      );
-      if (!response.ok) {
-        throw new Error("Failed to download file");
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.style.display = "none";
-      a.href = url;
-      a.download = zipFileName;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
+      return currentFileId;
     } catch (err) {
-      setError("Erreur lors du téléchargement du fichier");
       console.error(err);
+      setError("Erreur lors du téléchargement des chunks.");
+      return null;
     }
   };
 
-  /**
-   * Returns the buton text based on the current step
-   */
-  const getButtonText = () => {
-    switch (currentStep) {
-      case "uploading":
-        return "Téléchargement";
-      case "processing":
-        return "Traitement en cours";
-      case "completed":
-        return "Processus complété";
-      default:
-        return "Démarrer téléchargement";
+  const handleUpload = async () => {
+    if (!file) {
+      setError("Veuillez sélectionner un fichier d'abord.");
+      return;
     }
-  };
 
-  /**
-   * Resets the upload state for a new upload
-   */
-  const resetUpload = () => {
-    setFile(null);
+    setIsUploading(true);
+    setCurrentStep("uploading");
     setProgress(0);
-    setCurrentStep("idle");
-    setIsUploading(false);
-    setZipFileName(null);
     setError(null);
-    const fileInput = document.querySelector(".file-input") as HTMLInputElement;
-    if (fileInput) {
-      fileInput.value = "";
+
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    let currentFileId: string | null = null;
+
+    for (let chunkNumber = 0; chunkNumber < totalChunks; chunkNumber++) {
+      const start = chunkNumber * CHUNK_SIZE;
+      const end = Math.min(file.size, start + CHUNK_SIZE);
+      const chunk = file.slice(start, end);
+
+      const returnedFileId = await uploadChunk(
+        chunk,
+        chunkNumber,
+        totalChunks,
+        file.name,
+        currentFileId
+      );
+
+      if (!returnedFileId) {
+        setError(`Erreur lors du chunk ${chunkNumber}`);
+        setIsUploading(false);
+        setCurrentStep("error");
+        return;
+      }
+
+      if (!currentFileId && returnedFileId) {
+        currentFileId = returnedFileId;
+        setFileId(currentFileId);
+      }
+
+      setProgress(Math.floor(((chunkNumber + 1) / totalChunks) * 100));
     }
+
+    setCurrentStep("completed");
+    setIsUploading(false);
+    console.log("Upload terminé avec succès, fileId :", currentFileId);
   };
 
   return (
-    <div className="upload-container">
-      <h2>Sélectionner un fichier CSV à traiter</h2>
-      <input
-        type="file"
-        accept=".csv"
-        onChange={handleFileChange}
-        className="file-input"
-      />
-      <div className="button-container">
-        {currentStep !== "completed" && (
-          <button
-            onClick={handleUpload}
-            disabled={!file || isUploading}
-            className="upload-button"
-          >
-            {getButtonText()}
-            {isUploading && (
-              <div className="loading-dots">
-                <div></div>
-                <div></div>
-                <div></div>
-              </div>
-            )}
-          </button>
-        )}
-        {currentStep === "completed" && (
-          <button onClick={resetUpload} className="upload-button">
-            Nouveau téléchargement
-          </button>
-        )}
+    <div className="file-upload-container">
+      <h2>Uploader un fichier CSV</h2>
+
+      <div className="file-input-container">
+        <input
+          type="file"
+          accept=".csv"
+          onChange={handleFileChange}
+          className="file-input"
+        />
+        <button
+          className={`upload-btn ${!file || isUploading ? "disabled" : ""}`}
+          onClick={handleUpload}
+          disabled={!file || isUploading}
+        >
+          {isUploading ? "Envoi en cours..." : "Envoyer le fichier"}
+        </button>
       </div>
 
-      {progress > 0 && currentStep === "uploading" && (
+      {currentStep === "uploading" && (
         <div className="progress-container">
-          <div className="progress-bar" style={{ width: `${progress}%` }}></div>
+          <div className="progress-bar" style={{ width: `${progress}%` }} />
           <span className="progress-text">{progress}%</span>
         </div>
       )}
 
-      {error && <p className="error-message">{error}</p>}
-
-      {zipFileName && (
-        <button
-          onClick={handleDownload}
-          className="download-button completed-button"
-        >
-          📥 Téléchargé le fichier traité
-        </button>
+      {currentStep === "completed" && (
+        <div className="success-message">
+          ✅ Fichier envoyé avec succès. (FileId : {fileId})
+        </div>
       )}
+
+      {error && <div className="error-message">⚠️ {error}</div>}
     </div>
   );
 };
